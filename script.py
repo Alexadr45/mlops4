@@ -1,15 +1,20 @@
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
+import os
 import re
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, TrainingArguments, Trainer
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
+from torch.optim import AdamW
 from sklearn.model_selection import train_test_split
-import evaluate
-from clearml import Task, Logger
 
-task = Task.init(project_name='disaster_tweets', task_name='module use HP')
-logger = task.get_logger()    
+# import evaluate
+# from clearml import Task, Logger
+
+# task = Task.init(project_name='disaster_tweets', task_name='module use HP')
+# logger = task.get_logger()    
 
 parameters = {
     'train_test_split' : 0.3,
@@ -18,9 +23,9 @@ parameters = {
     'learning_rate' : 1e-5,
 }
 
-parameters = task.connect(parameters)
+# parameters = task.connect(parameters)
 
-train = pd.read_csv('/home/vboxuser/mlops4/datasets/train.csv')
+train = pd.read_csv('/content/train.csv')
 
 
 def cleaner(text):
@@ -55,8 +60,9 @@ labels = train.label.values
 
 model_id = "prajjwal1/bert-mini"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
+model = AutoModelForSequenceClassification.from_pretrained(model_id, num_labels=2)
 
-
+# X_train, X_valid, y_train, y_valid = train_test_split(tweets, labels, 0.3, random_state=42)
 X_train, X_valid, y_train, y_valid = train_test_split(tweets, labels, test_size=parameters['train_test_split'], random_state=42)
 
 
@@ -100,55 +106,75 @@ class MyCustomDataset(Dataset):
 train_set = MyCustomDataset(train_ready,y_train)
 val_set = MyCustomDataset(val_ready,y_valid)
 
+train_dataloader = DataLoader(train_set, shuffle = True, batch_size=parameters['batch_size'])
+val_dataloader = DataLoader(val_set, shuffle = False, batch_size=parameters['batch_size'])
 
-model = AutoModelForSequenceClassification.from_pretrained(model_id, num_labels=2)
+def train(model, train_dataloader, val_dataloader, optimizer, epochs=10, device='cpu', threshold = 0.5):
+    global best_f1
+    print(f'Training for {epochs} epochs on {device}')
+    for epoch in range(1,epochs+1):
+        print(f"Epoch {epoch}/{epochs}")
 
-metric = evaluate.load("f1")
+        model.train()
+        model.zero_grad() 
+        train_loss = 0
+        train_bar = tqdm(train_dataloader, total=len(train_dataloader))
+        for step, batch in enumerate(train_bar):
+            tokens_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            labels = batch['labels'].to(device)
+            loss, logits = model(input_ids = tokens_ids, attention_mask=attention_mask, labels = labels)[:2]
+            train_bar.set_description("epoch {} loss {}".format(epoch,loss))
+            train_loss += loss.item()
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
 
+        if val_dataloader is not None:
+            logits = []
+            y_trues = []
+            y_preds = []
+            model.eval()
 
-def compute_metrics(eval_pred):
-    logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=-1)
-    return metric.compute(predictions=predictions, references=labels)
+            valid_loss = 0
+            val_bar = tqdm(val_dataloader,total=len(val_dataloader))
+            for step, batch in enumerate(val_bar):
+                with torch.no_grad():
+                    tokens_ids = batch['input_ids'].to(device)
+                    attention_mask = batch['attention_mask'].to(device)
+                    labels = batch['labels'].to(device)
 
+                    loss, logits = model(input_ids = tokens_ids, attention_mask=attention_mask, labels = labels)[:2]
+                    valid_loss += loss.item()
 
-training_args = TrainingArguments(
-  output_dir="/home/vboxuser/mlops4/model",
-  per_device_train_batch_size=parameters['batch_size'],
-  evaluation_strategy="epoch",
-  logging_strategy = "epoch",
-  save_strategy =  "epoch",
-  num_train_epochs=parameters['num_train_epochs'],
-  learning_rate=parameters['learning_rate'],
-  save_total_limit=2,
-  remove_unused_columns=False,
-  push_to_hub=False,
-  load_best_model_at_end=True,
-)
-
-
-def collate_fn(batch):
-    return {
-        'input_ids': torch.stack([x['input_ids'] for x in batch]),
-        'attention_mask': torch.stack([x['attention_mask'] for x in batch]),
-        'labels': torch.tensor([x['labels'] for x in batch])
-    }
-
-
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    data_collator=collate_fn,
-    compute_metrics=compute_metrics,
-    train_dataset=train_set,
-    eval_dataset=val_set
-)
+                    y_preds.append(torch.argmax(logits, dim=1).cpu().numpy())
+                    y_trues.append(labels.cpu().numpy())
 
 
-train_results = trainer.train()
-trainer.save_model()
-trainer.log_metrics("train", train_results.metrics)
-trainer.save_state()
-f1 = trainer.evaluate(val_set)['eval_f1']
-Logger.current_logger().report_scalar(title='F1', series='F1', value=f1, iteration=1)
-task.upload_artifact(name='F1', artifact_object={'F1': f1})
+            y_trues = np.concatenate(y_trues,0)
+            y_preds = np.concatenate(y_preds,0)
+            train_loss = train_loss/len(train_dataloader.dataset)
+            valid_loss = valid_loss/len(val_dataloader.dataset)
+
+            precision = precision_score(y_trues, y_preds)
+            recall = recall_score(y_trues, y_preds)
+            f1 = f1_score(y_trues, y_preds)
+            if f1>best_f1:
+                best_f1=f1
+
+best_f1 = 0
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+lr = parameters['learning_rate']
+epochs = parameters['num_train_epochs']
+model = model.to(device)
+optimizer = AdamW(params=model.parameters(), lr=lr, eps = 1e-8)
+
+train(model = model,
+      train_dataloader = train_dataloader,
+      val_dataloader = val_dataloader,
+      optimizer = optimizer,
+      epochs = epochs,
+      device = device)
+
+Logger.current_logger().report_scalar(title='F1', series='F1', value=best_f1, iteration=1)
+task.upload_artifact(name='F1', artifact_object={'F1': best_f1})
