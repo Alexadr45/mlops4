@@ -1,0 +1,7 @@
+transformers
+torch
+pandas
+numpy
+scikit-learn
+evaluate
+accelerate==0.25.0
