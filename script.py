@@ -24,7 +24,7 @@ parameters = {
 
 parameters = task.connect(parameters)
 
-train = pd.read_csv('/content/train.csv')
+train = pd.read_csv('/home/vboxuser/mlops4/datasets/train.csv')
 
 
 def cleaner(text):
@@ -159,6 +159,7 @@ def train(model, train_dataloader, val_dataloader, optimizer, epochs=10, device=
             f1 = f1_score(y_trues, y_preds)
             if f1>best_f1:
                 best_f1=f1
+                model.save_pretrained('/home/vboxuser/mlops4/model')
 
 best_f1 = 0
 device = 'cuda' if torch.cuda.is_available() else 'cpu'

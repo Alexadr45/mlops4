@@ -1,0 +1,45 @@
+{
+  "best_metric": 0.5094785094261169,
+  "best_model_checkpoint": "/home/vboxuser/mlops4/model/checkpoint-661",
+  "epoch": 1.0,
+  "eval_steps": 500,
+  "global_step": 661,
+  "is_hyper_param_search": false,
+  "is_local_process_zero": true,
+  "is_world_process_zero": true,
+  "log_history": [
+    {
+      "epoch": 1.0,
+      "learning_rate": 0.0,
+      "loss": 0.5822,
+      "step": 661
+    },
+    {
+      "epoch": 1.0,
+      "eval_f1": 0.740420939017809,
+      "eval_loss": 0.5094785094261169,
+      "eval_runtime": 11.6141,
+      "eval_samples_per_second": 195.193,
+      "eval_steps_per_second": 24.453,
+      "step": 661
+    },
+    {
+      "epoch": 1.0,
+      "step": 661,
+      "total_flos": 4094000904960.0,
+      "train_loss": 0.5821871620443694,
+      "train_runtime": 221.06,
+      "train_samples_per_second": 23.921,
+      "train_steps_per_second": 2.99
+    }
+  ],
+  "logging_steps": 500,
+  "max_steps": 661,
+  "num_input_tokens_seen": 0,
+  "num_train_epochs": 1,
+  "save_steps": 500,
+  "total_flos": 4094000904960.0,
+  "train_batch_size": 8,
+  "trial_name": null,
+  "trial_params": null
+}
