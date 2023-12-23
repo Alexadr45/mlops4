@@ -9,12 +9,11 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 from sklearn.model_selection import train_test_split
+import evaluate
+from clearml import Task, Logger
 
-# import evaluate
-# from clearml import Task, Logger
-
-# task = Task.init(project_name='disaster_tweets', task_name='module use HP')
-# logger = task.get_logger()    
+task = Task.init(project_name='disaster_tweets', task_name='module use HP')
+logger = task.get_logger()    
 
 parameters = {
     'train_test_split' : 0.3,
@@ -23,7 +22,7 @@ parameters = {
     'learning_rate' : 1e-5,
 }
 
-# parameters = task.connect(parameters)
+parameters = task.connect(parameters)
 
 train = pd.read_csv('/content/train.csv')
 
@@ -62,7 +61,6 @@ model_id = "prajjwal1/bert-mini"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 model = AutoModelForSequenceClassification.from_pretrained(model_id, num_labels=2)
 
-# X_train, X_valid, y_train, y_valid = train_test_split(tweets, labels, 0.3, random_state=42)
 X_train, X_valid, y_train, y_valid = train_test_split(tweets, labels, test_size=parameters['train_test_split'], random_state=42)
 
 
